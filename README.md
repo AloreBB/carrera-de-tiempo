@@ -33,13 +33,19 @@ Variables API: `apps/api/.env` (ver ejemplo).
 
 ```bash
 pnpm --filter @carrera/shared test
-DATABASE_URL=postgresql://carrera:carrera@127.0.0.1:5434/carrera?schema=public \
-  JWT_WS_SECRET=test pnpm --filter @carrera/api test
+# API tests: needs `pnpm db:up` + secrets only in apps/api/.env (never commit .env)
+pnpm --filter @carrera/api test
 
 # E2E (API + web en marcha)
 pnpm exec playwright install chromium
 pnpm test:e2e
 ```
+
+## Secrets
+
+- **Never commit** `.env` / real passwords / JWT secrets.
+- Use `.env.example` as a template only.
+- Production secrets live in Dokploy (or your host env), not in git.
 
 ## Producción / dominio
 

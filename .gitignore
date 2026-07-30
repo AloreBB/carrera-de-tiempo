@@ -3,8 +3,11 @@ node_modules
 dist
 .next
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 coverage
 playwright-report
 test-results
@@ -13,3 +16,6 @@ test-results
 apps/api/prisma/*.db
 apps/api/prisma/*.db-journal
 .superpowers
+*.pem
+*.key
+!apps/web/next-env.d.ts
