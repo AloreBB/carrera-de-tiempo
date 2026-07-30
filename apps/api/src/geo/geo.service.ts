@@ -19,6 +19,94 @@ export class GeoService {
   private readonly ttlMs = 90_000;
   private lastRequestAt = 0;
 
+  async reverse(lat: number, lng: number): Promise<GeoHit> {
+    if (
+      Number.isNaN(lat) ||
+      Number.isNaN(lng) ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      return {
+        lat,
+        lng,
+        label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        subtitle: "Punto en el mapa",
+        kind: "other",
+      };
+    }
+
+    const key = `rev:${lat.toFixed(5)},${lng.toFixed(5)}`;
+    const hit = this.cache.get(key);
+    if (hit && Date.now() - hit.at < this.ttlMs) {
+      return hit.data[0] ?? {
+        lat,
+        lng,
+        label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        subtitle: "Punto en el mapa",
+        kind: "other",
+      };
+    }
+
+    const wait = 1100 - (Date.now() - this.lastRequestAt);
+    if (wait > 0) {
+      await new Promise((r) => setTimeout(r, wait));
+    }
+    this.lastRequestAt = Date.now();
+
+    const base = process.env.PHOTON_URL ?? "https://photon.komoot.io";
+    const url = `${base}/reverse?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}&lang=en`;
+
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "CarreraDeTiempo/1.0 (https://carrera.alore.dev)",
+          Accept: "application/json",
+        },
+      });
+      if (!res.ok) {
+        return {
+          lat,
+          lng,
+          label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          subtitle: "Punto en el mapa",
+          kind: "other",
+        };
+      }
+      const json = (await res.json()) as {
+        features?: Array<{
+          geometry: { coordinates: [number, number] };
+          properties: Record<string, string | number | undefined>;
+        }>;
+      };
+      const feature = json.features?.[0];
+      const parsed = feature
+        ? this.toHit({
+            geometry: { coordinates: [lng, lat] },
+            properties: feature.properties,
+          })
+        : null;
+      const result: GeoHit = parsed ?? {
+        lat,
+        lng,
+        label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        subtitle: "Punto en el mapa",
+        kind: "other",
+      };
+      this.cache.set(key, { at: Date.now(), data: [result] });
+      return result;
+    } catch {
+      return {
+        lat,
+        lng,
+        label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        subtitle: "Punto en el mapa",
+        kind: "other",
+      };
+    }
+  }
+
   async search(q: string): Promise<GeoHit[]> {
     const query = q.trim();
     if (query.length < 2) return [];

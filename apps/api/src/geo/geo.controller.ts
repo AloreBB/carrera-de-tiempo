@@ -9,4 +9,9 @@ export class GeoController {
   search(@Query("q") q = "") {
     return this.geo.search(q);
   }
+
+  @Get("reverse")
+  reverse(@Query("lat") lat = "", @Query("lng") lng = "") {
+    return this.geo.reverse(Number(lat), Number(lng));
+  }
 }

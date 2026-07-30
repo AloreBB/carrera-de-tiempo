@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -13,6 +13,10 @@ import {
   MapPinned,
   User,
 } from "lucide-react";
+import {
+  DestinationPickerMap,
+  type MapPoint,
+} from "@/components/DestinationPickerMap";
 import { PlaceSearch, type PlaceResult } from "@/components/PlaceSearch";
 import { api } from "@/lib/api";
 import {
@@ -33,6 +37,9 @@ export default function CreatePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [mapCenter, setMapCenter] = useState<MapPoint | null>(null);
+  const reverseSeq = useRef(0);
   const clientId = useMemo(
     () => (typeof window !== "undefined" ? getClientId() : ""),
     [],
@@ -40,7 +47,54 @@ export default function CreatePage() {
 
   useEffect(() => {
     setNick(getNickname());
+    // soft-center map on user if allowed
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setMapCenter({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+        },
+        () => {
+          /* keep default map */
+        },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 },
+      );
+    }
   }, []);
+
+  async function applyMapPoint(point: MapPoint) {
+    setError("");
+    setResolving(true);
+    const seq = ++reverseSeq.current;
+    // optimistic pin
+    setDest({
+      lat: point.lat,
+      lng: point.lng,
+      label: `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`,
+      subtitle: "Punto en el mapa",
+      kind: "other",
+    });
+    setQuery(`${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`);
+    try {
+      const place = await api.geoReverse(point.lat, point.lng);
+      if (seq !== reverseSeq.current) return;
+      setDest({
+        lat: place.lat,
+        lng: place.lng,
+        label: place.label,
+        subtitle: place.subtitle,
+        kind: place.kind,
+      });
+      setQuery(place.label);
+    } catch {
+      if (seq !== reverseSeq.current) return;
+      // keep coordinate label
+    } finally {
+      if (seq === reverseSeq.current) setResolving(false);
+    }
+  }
 
   async function useMyLocationAsDest() {
     setError("");
@@ -50,20 +104,17 @@ export default function CreatePage() {
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const place: PlaceResult = {
+      async (pos) => {
+        const point = {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-          label: "Mi ubicación actual",
-          subtitle: "Meta cerca de ti",
-          kind: "place",
         };
-        setDest(place);
-        setQuery(place.label);
+        setMapCenter(point);
         setLocating(false);
+        await applyMapPoint(point);
       },
       () => {
-        setError("Activa la ubicación o elige un destino en la búsqueda");
+        setError("Activa la ubicación o elige un destino en la búsqueda o el mapa");
         setLocating(false);
       },
       { enableHighAccuracy: true, timeout: 12000 },
@@ -78,7 +129,7 @@ export default function CreatePage() {
       return;
     }
     if (!dest) {
-      setError("Elige un destino en el buscador");
+      setError("Elige un destino: búscalo o tócalo en el mapa");
       return;
     }
     if (pin && !/^\d{4}$/.test(pin)) {
@@ -99,7 +150,6 @@ export default function CreatePage() {
         joinMode,
         pin: pin || undefined,
       });
-      // código de sala generado aleatoriamente en el servidor
       saveSession({
         raceId: res.race.id,
         code: res.race.code,
@@ -129,8 +179,8 @@ export default function CreatePage() {
 
       <h1 className="display">Nueva carrera</h1>
       <p className="lead">
-        Elige a dónde van. El código de invitación se genera solo al crear la
-        sala.
+        Busca una dirección o toca el mapa para fijar la meta. El código de
+        invitación se genera solo.
       </p>
 
       <form className="stack" onSubmit={onSubmit}>
@@ -150,18 +200,34 @@ export default function CreatePage() {
           </label>
 
           <div className="field">
-            <span>Destino</span>
+            <span>Buscar destino</span>
             <PlaceSearch
               value={query}
               onQueryChange={(q) => {
                 setQuery(q);
                 if (dest && q !== dest.label) setDest(null);
               }}
-              onSelect={(place) => setDest(place)}
+              onSelect={(place) => {
+                setDest(place);
+                setQuery(place.label);
+              }}
             />
             <p className="muted" style={{ margin: "0.15rem 0 0", fontSize: "0.8rem" }}>
-              Escribe y elige una sugerencia de la lista.
+              Sugerencias de lugares y direcciones, o elige en el mapa abajo.
             </p>
+          </div>
+
+          <div className="field">
+            <span>O elige en el mapa</span>
+            <DestinationPickerMap
+              value={
+                dest ? { lat: dest.lat, lng: dest.lng } : null
+              }
+              defaultCenter={mapCenter ?? undefined}
+              onPick={(point) => {
+                void applyMapPoint(point);
+              }}
+            />
           </div>
 
           <button
@@ -181,17 +247,23 @@ export default function CreatePage() {
           {dest && (
             <div className="dest-chip">
               <MapPinned size={18} color="var(--ok)" style={{ marginTop: 2 }} />
-              <div>
-                <strong>{dest.label}</strong>
-                {dest.subtitle && (
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <strong>
+                  {resolving ? "Resolviendo dirección…" : dest.label}
+                </strong>
+                {dest.subtitle && !resolving && (
                   <div className="muted" style={{ fontSize: "0.82rem" }}>
                     {dest.subtitle}
                   </div>
                 )}
                 <div className="row" style={{ marginTop: 4, gap: 4 }}>
-                  <Check size={14} color="var(--ok)" />
+                  {resolving ? (
+                    <Loader2 className="spin" size={14} color="var(--muted)" />
+                  ) : (
+                    <Check size={14} color="var(--ok)" />
+                  )}
                   <span className="muted" style={{ fontSize: "0.78rem" }}>
-                    Destino listo
+                    {dest.lat.toFixed(5)}, {dest.lng.toFixed(5)}
                   </span>
                 </div>
               </div>

@@ -91,6 +91,15 @@ export const api = {
       }>
     >(`/api/geo/search?q=${encodeURIComponent(q)}`),
 
+  geoReverse: (lat: number, lng: number) =>
+    req<{
+      lat: number;
+      lng: number;
+      label: string;
+      subtitle?: string;
+      kind?: "place" | "address" | "street" | "city" | "other";
+    }>(`/api/geo/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`),
+
   results: (code: string) =>
     req<{ race: RacePublic; result: RaceResultPayload | null; participants: ParticipantPublic[] }>(
       `/api/races/${code}/results`,

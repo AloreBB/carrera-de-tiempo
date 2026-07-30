@@ -376,6 +376,39 @@ h2 {
   border: 1px solid var(--line);
 }
 
+.map-picker {
+  position: relative;
+  height: 42dvh;
+  min-height: 240px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #0a0f17;
+}
+
+.map-picker-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.map-picker-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 2;
+  pointer-events: none;
+  max-width: 92%;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1a1000;
+  background: color-mix(in srgb, var(--amber) 92%, #fff);
+  border-radius: 999px;
+  padding: 0.4rem 0.75rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
 .dot {
   width: 10px;
   height: 10px;
