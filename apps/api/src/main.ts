@@ -1,12 +1,11 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { json, urlencoded } from "express";
+import { NestExpressApplication } from "@nestjs/platform-express";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    // hide nest banner noise; errors still log
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger:
       process.env.NODE_ENV === "production"
         ? ["error", "warn", "log"]
@@ -14,8 +13,7 @@ async function bootstrap() {
   });
 
   // Behind Cloudflare / Traefik — correct client IP for rate limits
-  const httpAdapter = app.getHttpAdapter().getInstance();
-  httpAdapter.set("trust proxy", 1);
+  app.set("trust proxy", 1);
 
   app.use(
     helmet({
@@ -26,8 +24,8 @@ async function bootstrap() {
   );
 
   // Small bodies only — blocks oversized bot payloads
-  app.use(json({ limit: "32kb" }));
-  app.use(urlencoded({ extended: false, limit: "32kb" }));
+  app.useBodyParser("json", { limit: "32kb" });
+  app.useBodyParser("urlencoded", { limit: "32kb", extended: false });
 
   app.setGlobalPrefix("api");
   app.useGlobalPipes(
@@ -55,7 +53,6 @@ async function bootstrap() {
 
   const port = Number(process.env.PORT ?? 3001);
   // Bind all interfaces inside the container; only Docker/Traefik should reach it
-  // (compose must NOT publish DB/API to the public internet)
   await app.listen(port, "0.0.0.0");
   // eslint-disable-next-line no-console
   console.log(`Carrera de Tiempo API on :${port}`);
