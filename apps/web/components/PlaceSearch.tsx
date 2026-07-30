@@ -57,10 +57,15 @@ export function PlaceSearch({
 
   useEffect(() => {
     const q = value.trim();
-    if (q.length < 2) {
+    // Skip pure coordinates (map picks set these briefly — not useful for search)
+    const looksLikeCoords =
+      /^-?\d{1,3}(\.\d+)?\s*,\s*-?\d{1,3}(\.\d+)?$/.test(q) ||
+      /^-?\d{1,3}\.\d{3,}\s*$/.test(q);
+    if (q.length < 2 || looksLikeCoords) {
       setResults([]);
       setLoading(false);
       setError("");
+      setOpen(false);
       return;
     }
 
@@ -80,11 +85,11 @@ export function PlaceSearch({
         .catch(() => {
           if (id !== reqId.current) return;
           setResults([]);
-          setError("No se pudo buscar. Prueba otra vez.");
+          setError("No se pudo buscar. Prueba otra vez o elige en el mapa.");
           setLoading(false);
           setOpen(true);
         });
-    }, 280);
+    }, 320);
 
     return () => clearTimeout(t);
   }, [value]);

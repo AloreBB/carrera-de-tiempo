@@ -68,29 +68,31 @@ export default function CreatePage() {
     setError("");
     setResolving(true);
     const seq = ++reverseSeq.current;
-    // optimistic pin
-    setDest({
+    // Optimistic pin — enough to create the race even if reverse fails
+    const fallback: PlaceResult = {
       lat: point.lat,
       lng: point.lng,
-      label: `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`,
-      subtitle: "Punto en el mapa",
+      label: "Punto en el mapa",
+      subtitle: `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`,
       kind: "other",
-    });
-    setQuery(`${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`);
+    };
+    setDest(fallback);
+    // Don't put raw coords in the search box (avoids useless /geo/search calls)
+    setQuery("");
     try {
       const place = await api.geoReverse(point.lat, point.lng);
       if (seq !== reverseSeq.current) return;
       setDest({
         lat: place.lat,
         lng: place.lng,
-        label: place.label,
-        subtitle: place.subtitle,
-        kind: place.kind,
+        label: place.label || fallback.label,
+        subtitle: place.subtitle || fallback.subtitle,
+        kind: place.kind ?? "other",
       });
-      setQuery(place.label);
+      if (place.label) setQuery(place.label);
     } catch {
       if (seq !== reverseSeq.current) return;
-      // keep coordinate label
+      // Keep map pin; reverse is optional
     } finally {
       if (seq === reverseSeq.current) setResolving(false);
     }
