@@ -1,12 +1,11 @@
-# Production stack for Dokploy / reverse proxy.
-# No host port binds — Traefik/Dokploy reaches services on the Docker network.
-# Domain tips:
-#   - web: service `web`, port 3000  (one public domain is enough)
-#   - api: optional service `api`, port 3001  (only if you want a separate API host)
-# Prefer same-origin: proxy /api and /socket.io to `api:3001` from the web domain.
+# Production stack for Dokploy.
+# Unique service names avoid Docker DNS collisions with other projects on the same host.
+#
+# Domain: only need carrera.alore.dev → service carrera_web :3000
+# Next rewrites /api and /socket.io to carrera_api:3001 on the compose network.
 
 services:
-  db:
+  carrera_db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -23,37 +22,37 @@ services:
     expose:
       - "5432"
 
-  api:
+  carrera_api:
     build:
       context: .
       dockerfile: Dockerfile
       target: api
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-carrera}:${POSTGRES_PASSWORD:-carrera}@db:5432/${POSTGRES_DB:-carrera}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-carrera}:${POSTGRES_PASSWORD:-carrera}@carrera_db:5432/${POSTGRES_DB:-carrera}?schema=public
       JWT_WS_SECRET: ${JWT_WS_SECRET:-change-me-in-prod}
       PORT: "3001"
-      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://carrera.alore.dev}
       PHOTON_URL: ${PHOTON_URL:-https://photon.komoot.io}
       FINISH_RADIUS_M: ${FINISH_RADIUS_M:-80}
     depends_on:
-      db:
+      carrera_db:
         condition: service_healthy
     expose:
       - "3001"
 
-  web:
+  carrera_web:
     build:
       context: .
       dockerfile: Dockerfile
       target: web
     restart: unless-stopped
     environment:
-      API_INTERNAL_URL: http://api:3001
+      API_INTERNAL_URL: http://carrera_api:3001
       PORT: "3000"
       HOSTNAME: 0.0.0.0
     depends_on:
-      - api
+      - carrera_api
     expose:
       - "3000"
 

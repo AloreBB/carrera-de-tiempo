@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS builder
 COPY . .
 # Bake Docker-network API URL into Next rewrites (standalone)
-ENV API_INTERNAL_URL=http://api:3001
+ENV API_INTERNAL_URL=http://carrera_api:3001
 RUN pnpm --filter @carrera/shared build \
  && pnpm --filter @carrera/api exec prisma generate \
  && pnpm --filter @carrera/api build \
