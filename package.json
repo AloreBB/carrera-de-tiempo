@@ -1,0 +1,21 @@
+{
+  "name": "carrera-de-tiempo",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:e2e": "playwright test",
+    "lint": "turbo run lint",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @carrera/api exec prisma migrate deploy",
+    "db:generate": "pnpm --filter @carrera/api exec prisma generate"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0",
+    "turbo": "^2.4.4",
+    "typescript": "^5.8.2"
+  }
+}

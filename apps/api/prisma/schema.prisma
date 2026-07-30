@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RaceStatus {
+  LOBBY
+  COUNTDOWN
+  RACING
+  FINISHED
+  CANCELLED
+}
+
+enum JoinMode {
+  OPEN
+  APPROVAL
+}
+
+enum ParticipantStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  LEFT
+  FINISHED
+}
+
+model Race {
+  id            String     @id @default(cuid())
+  code          String     @unique
+  status        RaceStatus @default(LOBBY)
+  joinMode      JoinMode   @default(OPEN)
+  pinHash       String?
+  destLat       Float
+  destLng       Float
+  destLabel     String?
+  hostClientId  String
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  finishRadiusM Int        @default(80)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  participants    Participant[]
+  positionSamples PositionSample[]
+  result          RaceResult?
+}
+
+model Participant {
+  id         String            @id @default(cuid())
+  raceId     String
+  race       Race              @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  clientId   String
+  nickname   String
+  isHost     Boolean           @default(false)
+  status     ParticipantStatus @default(ACTIVE)
+  color      String?
+  startLat   Float?
+  startLng   Float?
+  finishedAt DateTime?
+  durationMs Int?
+  joinedAt   DateTime          @default(now())
+
+  @@unique([raceId, clientId])
+  @@index([raceId])
+}
+
+model PositionSample {
+  id            String   @id @default(cuid())
+  raceId        String
+  race          Race     @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  participantId String
+  lat           Float
+  lng           Float
+  accuracyM     Float?
+  recordedAt    DateTime
+
+  @@index([raceId, participantId, recordedAt])
+}
+
+model RaceResult {
+  id        String   @id @default(cuid())
+  raceId    String   @unique
+  race      Race     @relation(fields: [raceId], references: [id], onDelete: Cascade)
+  payload   Json
+  createdAt DateTime @default(now())
+}
