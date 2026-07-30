@@ -309,7 +309,7 @@ export default function RaceRoomPage() {
     if (!race) return "";
     const url = `${window.location.origin}/r/${race.code}`;
     const dest = race.destLabel ? `\nMeta: ${race.destLabel}` : "";
-    return `🏁 Carrera de Tiempo\nCódigo: ${race.code}${dest}\n\nEntra aquí:\n${url}`;
+    return `🏁 Carrera de Tiempo — ¡únete!\nCódigo: ${race.code}${dest}\n\nEnlace para entrar:\n${url}`;
   }
 
   async function copyInvite() {
