@@ -12,6 +12,7 @@ import {
   KeyRound,
   Loader2,
   MapPin,
+  MessageCircle,
   Play,
   Radio,
   Share2,
@@ -304,17 +305,44 @@ export default function RaceRoomPage() {
     }
   }
 
+  function inviteText() {
+    if (!race) return "";
+    const url = `${window.location.origin}/r/${race.code}`;
+    const dest = race.destLabel ? `\nMeta: ${race.destLabel}` : "";
+    return `🏁 Carrera de Tiempo\nCódigo: ${race.code}${dest}\n\nEntra aquí:\n${url}`;
+  }
+
   async function copyInvite() {
     if (!race) return;
-    const url = `${window.location.origin}/r/${race.code}`;
-    const text = `Únete a mi carrera: ${race.code}\n${url}`;
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(inviteText());
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       /* ignore */
     }
+  }
+
+  function shareWhatsApp() {
+    if (!race) return;
+    const url = `https://wa.me/?text=${encodeURIComponent(inviteText())}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function shareResultsWhatsApp() {
+    if (!race) return;
+    const ranking = result?.ranking ?? [];
+    const lines = ranking
+      .slice(0, 10)
+      .map((r) => `${r.place}. ${r.nickname} — ${formatMs(r.durationMs)}`)
+      .join("\n");
+    const url = `${window.location.origin}/r/${race.code}`;
+    const text = `🏆 Resultados Carrera de Tiempo (${race.code})\n${lines || "Sin llegadas"}\n\n${url}`;
+    window.open(
+      `https://wa.me/?text=${encodeURIComponent(text)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
   }
 
   const mapPlayers = useMemo(() => {
@@ -526,13 +554,27 @@ export default function RaceRoomPage() {
           </div>
         )}
 
-        <button
-          className="btn btn-secondary btn-block"
-          style={{ marginTop: "1rem" }}
-          onClick={() => router.push("/")}
-        >
-          Volver al inicio
-        </button>
+        <div className="stack" style={{ marginTop: "1rem" }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-block"
+            onClick={shareResultsWhatsApp}
+            style={{
+              background: "linear-gradient(135deg, #25d366 0%, #128c7e 100%)",
+              color: "#fff",
+              boxShadow: "0 10px 28px rgba(37, 211, 102, 0.25)",
+            }}
+          >
+            <MessageCircle size={18} />
+            Compartir resultados por WhatsApp
+          </button>
+          <button
+            className="btn btn-secondary btn-block"
+            onClick={() => router.push("/")}
+          >
+            Volver al inicio
+          </button>
+        </div>
       </main>
     );
   }
@@ -580,6 +622,19 @@ export default function RaceRoomPage() {
             {race.code}
           </div>
           <div className="stack" style={{ marginTop: "0.85rem" }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              onClick={shareWhatsApp}
+              style={{
+                background: "linear-gradient(135deg, #25d366 0%, #128c7e 100%)",
+                color: "#fff",
+                boxShadow: "0 10px 28px rgba(37, 211, 102, 0.25)",
+              }}
+            >
+              <MessageCircle size={18} />
+              Compartir por WhatsApp
+            </button>
             <button
               type="button"
               className="btn btn-secondary btn-block"
@@ -632,17 +687,23 @@ export default function RaceRoomPage() {
       )}
 
       {race.status === "RACING" && (
-        <div className="card row between" style={{ marginTop: "0.85rem" }}>
-          <span className="row muted">
-            <Timer size={16} /> Tiempo
-          </span>
-          <strong
-            className="display"
-            data-testid="elapsed"
-            style={{ fontSize: "1.35rem", letterSpacing: "0.06em" }}
-          >
-            {formatMs(elapsed)}
-          </strong>
+        <div className="card" style={{ marginTop: "0.85rem" }}>
+          <div className="row between">
+            <span className="row muted">
+              <Timer size={16} /> Tiempo de carrera
+            </span>
+            <strong
+              className="display"
+              data-testid="elapsed"
+              style={{ fontSize: "1.35rem", letterSpacing: "0.06em" }}
+            >
+              {formatMs(elapsed)}
+            </strong>
+          </div>
+          <p className="muted" style={{ margin: "0.55rem 0 0", fontSize: "0.8rem" }}>
+            Corre desde el final del 3-2-1 hasta que entres en el radio de la
+            meta (~{race.finishRadiusM} m). Tu tiempo se guarda al llegar.
+          </p>
         </div>
       )}
 
