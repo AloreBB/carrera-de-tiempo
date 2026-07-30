@@ -1,8 +1,8 @@
 # Production stack for Dokploy.
 # Unique service names avoid Docker DNS collisions with other projects on the same host.
 #
-# Domain: only need carrera.alore.dev → service carrera_web :3000
-# Next rewrites /api and /socket.io to carrera_api:3001 on the compose network.
+# All secrets MUST be set in the environment (Dokploy env) — no defaults here.
+# Domain: carrera.alore.dev → service carrera_web :3000
 
 services:
   carrera_db:
@@ -33,8 +33,8 @@ services:
       JWT_WS_SECRET: ${JWT_WS_SECRET}
       PORT: "3001"
       CORS_ORIGIN: ${CORS_ORIGIN}
-      PHOTON_URL: ${PHOTON_URL:-https://photon.komoot.io}
-      FINISH_RADIUS_M: ${FINISH_RADIUS_M:-80}
+      PHOTON_URL: ${PHOTON_URL}
+      FINISH_RADIUS_M: ${FINISH_RADIUS_M}
       NODE_ENV: production
     depends_on:
       carrera_db:
