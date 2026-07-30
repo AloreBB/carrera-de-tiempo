@@ -1,6 +1,9 @@
-# Production-style stack. Host ports ONLY on loopback.
-# Public access: reverse proxy / Dokploy domain → web :3000
-# Proxy must also route /api and /socket.io to api :3001 (or set NEXT_PUBLIC_API_URL).
+# Production stack for Dokploy / reverse proxy.
+# No host port binds — Traefik/Dokploy reaches services on the Docker network.
+# Domain tips:
+#   - web: service `web`, port 3000  (one public domain is enough)
+#   - api: optional service `api`, port 3001  (only if you want a separate API host)
+# Prefer same-origin: proxy /api and /socket.io to `api:3001` from the web domain.
 
 services:
   db:
@@ -8,7 +11,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-carrera}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carrera}
       POSTGRES_DB: ${POSTGRES_DB:-carrera}
     volumes:
       - carrera_prod_db:/var/lib/postgresql/data
@@ -17,7 +20,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    # no public ports — only Docker network
+    expose:
+      - "5432"
 
   api:
     build:
@@ -26,17 +30,15 @@ services:
       target: api
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-carrera}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-carrera}?schema=public
-      JWT_WS_SECRET: ${JWT_WS_SECRET:?set JWT_WS_SECRET}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-carrera}:${POSTGRES_PASSWORD:-carrera}@db:5432/${POSTGRES_DB:-carrera}?schema=public
+      JWT_WS_SECRET: ${JWT_WS_SECRET:-change-me-in-prod}
       PORT: "3001"
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://127.0.0.1:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
       PHOTON_URL: ${PHOTON_URL:-https://photon.komoot.io}
       FINISH_RADIUS_M: ${FINISH_RADIUS_M:-80}
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:3001:3001"
     expose:
       - "3001"
 
@@ -45,9 +47,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: web
-      args:
-        # baked at build if needed
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     restart: unless-stopped
     environment:
       API_INTERNAL_URL: http://api:3001
@@ -55,8 +54,6 @@ services:
       HOSTNAME: 0.0.0.0
     depends_on:
       - api
-    ports:
-      - "127.0.0.1:3000:3000"
     expose:
       - "3000"
 
