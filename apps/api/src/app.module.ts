@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { JwtModule } from "@nestjs/jwt";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RacesModule } from "./races/races.module";
 import { GeoModule } from "./geo/geo.module";
@@ -12,12 +14,24 @@ function jwtSecret(): string {
   if (process.env.NODE_ENV === "production") {
     throw new Error("JWT_WS_SECRET is required in production");
   }
-  // Local/dev only — never a real production secret
   return "local-dev-only-not-for-production";
 }
 
 @Module({
   imports: [
+    // Global bot / flood protection (per IP)
+    ThrottlerModule.forRoot([
+      {
+        name: "default",
+        ttl: 60_000,
+        limit: 120,
+      },
+      {
+        name: "strict",
+        ttl: 60_000,
+        limit: 20,
+      },
+    ]),
     PrismaModule,
     JwtModule.register({
       global: true,
@@ -29,5 +43,11 @@ function jwtSecret(): string {
     RaceGatewayModule,
   ],
   controllers: [HealthController],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

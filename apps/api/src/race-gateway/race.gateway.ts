@@ -26,12 +26,26 @@ interface SocketData {
   claims: WsTokenClaims;
 }
 
+function wsCorsOrigin(): string | string[] | boolean {
+  const raw = process.env.CORS_ORIGIN?.trim();
+  if (!raw) {
+    // Deny open CORS on sockets in production; allow loose only in local
+    return process.env.NODE_ENV === "production" ? false : true;
+  }
+  return raw.split(",").map((o) => o.trim()).filter(Boolean);
+}
+
 @WebSocketGateway({
   cors: {
-    origin: process.env.CORS_ORIGIN?.split(",") ?? true,
+    origin: wsCorsOrigin(),
     credentials: true,
   },
+  // Prefer websocket; polling still ok behind reverse proxies
   transports: ["websocket", "polling"],
+  // Limit max payload size (bytes) — bots flooding large frames get dropped
+  maxHttpBufferSize: 16 * 1024,
+  // connection state recovery off (stateless rooms)
+  connectTimeout: 10_000,
 })
 export class RaceGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()

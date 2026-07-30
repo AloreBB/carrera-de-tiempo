@@ -98,8 +98,13 @@ export class RacesService {
   }
 
   async getByCode(code: string) {
+    const normalized = normalizeRaceCode(code);
+    // Defense in depth: never pass weird strings into queries
+    if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(normalized)) {
+      throw new NotFoundException("Carrera no encontrada");
+    }
     const race = await this.prisma.race.findUnique({
-      where: { code: normalizeRaceCode(code) },
+      where: { code: normalized },
       include: {
         participants: {
           where: { status: { not: ParticipantStatus.REJECTED } },

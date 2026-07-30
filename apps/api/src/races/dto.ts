@@ -6,17 +6,24 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
   Max,
   MaxLength,
   Min,
 } from "class-validator";
 
+/** Safe display name: letters, numbers, spaces, basic punctuation — no control chars */
+const NICK_RE = /^[\p{L}\p{N} ._\-']{1,32}$/u;
+const PIN_RE = /^\d{4}$/;
+const RACE_CODE_RE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/i;
+
 export class CreateRaceDto {
   @IsString()
   @MaxLength(32)
+  @Matches(NICK_RE, { message: "nickname inválido" })
   nickname!: string;
 
-  @IsUUID()
+  @IsUUID("4")
   clientId!: string;
 
   @IsNumber()
@@ -39,29 +46,32 @@ export class CreateRaceDto {
 
   @IsOptional()
   @IsString()
-  @Length(4, 4)
+  @Matches(PIN_RE, { message: "pin debe ser 4 dígitos" })
   pin?: string;
 }
 
 export class JoinRaceDto {
   @IsString()
   @MaxLength(32)
+  @Matches(NICK_RE, { message: "nickname inválido" })
   nickname!: string;
 
-  @IsUUID()
+  @IsUUID("4")
   clientId!: string;
 
   @IsOptional()
   @IsString()
-  @Length(4, 4)
+  @Matches(PIN_RE, { message: "pin debe ser 4 dígitos" })
   pin?: string;
 }
 
 export class ApproveDto {
-  @IsUUID()
+  @IsUUID("4")
   clientId!: string;
 
   @IsString()
+  @MaxLength(40)
+  @Matches(/^[a-z0-9]+$/i, { message: "participantId inválido" })
   participantId!: string;
 
   @IsBoolean()
@@ -69,6 +79,20 @@ export class ApproveDto {
 }
 
 export class HostActionDto {
-  @IsUUID()
+  @IsUUID("4")
   clientId!: string;
+}
+
+export class RaceCodeParamDto {
+  @IsString()
+  @Length(6, 6)
+  @Matches(RACE_CODE_RE, { message: "código de sala inválido" })
+  code!: string;
+}
+
+export class RaceIdParamDto {
+  @IsString()
+  @MaxLength(40)
+  @Matches(/^[a-z0-9]+$/i, { message: "id inválido" })
+  id!: string;
 }
