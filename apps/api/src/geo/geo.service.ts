@@ -55,7 +55,9 @@ export class GeoService {
     }
     this.lastRequestAt = Date.now();
 
-    const base = process.env.PHOTON_URL ?? "https://photon.komoot.io";
+    // empty string must not win over default (Dokploy may set PHOTON_URL=)
+    const base =
+      (process.env.PHOTON_URL || "").trim() || "https://photon.komoot.io";
     const url = `${base}/reverse?lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}&lang=en`;
 
     try {
@@ -124,7 +126,8 @@ export class GeoService {
     }
     this.lastRequestAt = Date.now();
 
-    const base = process.env.PHOTON_URL ?? "https://photon.komoot.io";
+    const base =
+      (process.env.PHOTON_URL || "").trim() || "https://photon.komoot.io";
     // Photon only supports: default, de, en, fr — never "es"
     const url = `${base}/api/?q=${encodeURIComponent(query)}&limit=8&lang=en`;
 
@@ -134,9 +137,12 @@ export class GeoService {
           "User-Agent": "CarreraDeTiempo/1.0 (https://carrera.alore.dev)",
           Accept: "application/json",
         },
+        signal: AbortSignal.timeout(12_000),
       });
       if (!res.ok) {
-        throw new ServiceUnavailableException("Geocoding no disponible");
+        throw new ServiceUnavailableException(
+          `Geocoding no disponible (${res.status})`,
+        );
       }
 
       const json = (await res.json()) as {

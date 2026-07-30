@@ -57,7 +57,9 @@ export class RacesService {
   async create(dto: CreateRaceDto) {
     const code = await this.uniqueCode();
     const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 10) : null;
-    const finishRadiusM = Number(process.env.FINISH_RADIUS_M ?? FINISH_RADIUS_M_DEFAULT);
+    const finishRadiusM = Number(
+      process.env.FINISH_RADIUS_M || FINISH_RADIUS_M_DEFAULT,
+    ) || FINISH_RADIUS_M_DEFAULT;
 
     const race = await this.prisma.race.create({
       data: {
