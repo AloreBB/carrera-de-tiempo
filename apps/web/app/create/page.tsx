@@ -1,7 +1,19 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  Crosshair,
+  Loader2,
+  MapPinned,
+  User,
+} from "lucide-react";
+import { PlaceSearch, type PlaceResult } from "@/components/PlaceSearch";
 import { api } from "@/lib/api";
 import {
   getClientId,
@@ -15,18 +27,12 @@ export default function CreatePage() {
   const router = useRouter();
   const [nickname, setNick] = useState("");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<
-    Array<{ lat: number; lng: number; label: string }>
-  >([]);
-  const [dest, setDest] = useState<{
-    lat: number;
-    lng: number;
-    label: string;
-  } | null>(null);
+  const [dest, setDest] = useState<PlaceResult | null>(null);
   const [joinMode, setJoinMode] = useState<"OPEN" | "APPROVAL">("OPEN");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [locating, setLocating] = useState(false);
   const clientId = useMemo(
     () => (typeof window !== "undefined" ? getClientId() : ""),
     [],
@@ -36,35 +42,30 @@ export default function CreatePage() {
     setNick(getNickname());
   }, []);
 
-  useEffect(() => {
-    if (query.trim().length < 3) {
-      setResults([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      api
-        .geoSearch(query.trim())
-        .then(setResults)
-        .catch(() => setResults([]));
-    }, 400);
-    return () => clearTimeout(t);
-  }, [query]);
-
   async function useMyLocationAsDest() {
     setError("");
     if (!navigator.geolocation) {
-      setError("Geolocalización no disponible");
+      setError("La ubicación no está disponible en este dispositivo");
       return;
     }
+    setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setDest({
+        const place: PlaceResult = {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
-          label: "Mi ubicación actual (meta de prueba)",
-        });
+          label: "Mi ubicación actual",
+          subtitle: "Meta cerca de ti",
+          kind: "place",
+        };
+        setDest(place);
+        setQuery(place.label);
+        setLocating(false);
       },
-      () => setError("No se pudo obtener tu ubicación"),
+      () => {
+        setError("Activa la ubicación o elige un destino en la búsqueda");
+        setLocating(false);
+      },
       { enableHighAccuracy: true, timeout: 12000 },
     );
   }
@@ -73,15 +74,15 @@ export default function CreatePage() {
     e.preventDefault();
     setError("");
     if (!nickname.trim()) {
-      setError("Pon un apodo");
+      setError("Escribe un apodo para identificarte");
       return;
     }
     if (!dest) {
-      setError("Elige un destino");
+      setError("Elige un destino en el buscador");
       return;
     }
     if (pin && !/^\d{4}$/.test(pin)) {
-      setError("El PIN debe ser 4 dígitos o vacío");
+      setError("El PIN, si lo usas, debe ser de 4 dígitos");
       return;
     }
     setLoading(true);
@@ -92,10 +93,13 @@ export default function CreatePage() {
         clientId,
         destLat: dest.lat,
         destLng: dest.lng,
-        destLabel: dest.label,
+        destLabel: dest.subtitle
+          ? `${dest.label} · ${dest.subtitle}`
+          : dest.label,
         joinMode,
         pin: pin || undefined,
       });
+      // código de sala generado aleatoriamente en el servidor
       saveSession({
         raceId: res.race.id,
         code: res.race.code,
@@ -111,104 +115,139 @@ export default function CreatePage() {
       });
       router.push(`/r/${res.race.code}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al crear");
+      setError(err instanceof Error ? err.message : "No se pudo crear la sala");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main>
-      <p>
-        <a href="/">← Inicio</a>
-      </p>
-      <h1>Crear carrera</h1>
-      <p className="muted">
-        Destino tipo Waze: cada uno sale desde donde está.
+    <main className="app-shell">
+      <Link href="/" className="back-link">
+        <ArrowLeft size={16} /> Inicio
+      </Link>
+
+      <h1 className="display">Nueva carrera</h1>
+      <p className="lead">
+        Elige a dónde van. El código de invitación se genera solo al crear la
+        sala.
       </p>
 
       <form className="stack" onSubmit={onSubmit}>
         <div className="card stack">
-          <label>
-            Tu apodo
-            <input
-              value={nickname}
-              onChange={(e) => setNick(e.target.value)}
-              maxLength={32}
-              placeholder="Alex"
-              required
-            />
+          <label className="field">
+            <span>Tu apodo</span>
+            <div className="input-wrap">
+              <User className="icon" size={18} />
+              <input
+                value={nickname}
+                onChange={(e) => setNick(e.target.value)}
+                maxLength={32}
+                placeholder="Cómo te ven los demás"
+                required
+              />
+            </div>
           </label>
 
-          <label>
-            Buscar destino
-            <input
+          <div className="field">
+            <span>Destino</span>
+            <PlaceSearch
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Calle, ciudad, sitio…"
+              onQueryChange={(q) => {
+                setQuery(q);
+                if (dest && q !== dest.label) setDest(null);
+              }}
+              onSelect={(place) => setDest(place)}
             />
-          </label>
+            <p className="muted" style={{ margin: "0.15rem 0 0", fontSize: "0.8rem" }}>
+              Escribe y elige una sugerencia de la lista.
+            </p>
+          </div>
 
-          {results.length > 0 && (
-            <ul className="list">
-              {results.map((r) => (
-                <li key={`${r.lat}-${r.lng}-${r.label}`}>
-                  <button
-                    type="button"
-                    className="secondary"
-                    style={{ width: "100%", textAlign: "left" }}
-                    onClick={() => {
-                      setDest(r);
-                      setResults([]);
-                      setQuery(r.label);
-                    }}
-                  >
-                    {r.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <button type="button" className="secondary" onClick={useMyLocationAsDest}>
-            Usar mi ubicación como meta (prueba)
+          <button
+            type="button"
+            className="btn btn-secondary btn-block"
+            onClick={useMyLocationAsDest}
+            disabled={locating}
+          >
+            {locating ? (
+              <Loader2 className="spin" size={18} />
+            ) : (
+              <Crosshair size={18} />
+            )}
+            Usar mi ubicación como meta
           </button>
 
           {dest && (
-            <p className="pill">
-              Meta: <strong style={{ color: "var(--text)" }}>{dest.label}</strong>
-            </p>
+            <div className="dest-chip">
+              <MapPinned size={18} color="var(--ok)" style={{ marginTop: 2 }} />
+              <div>
+                <strong>{dest.label}</strong>
+                {dest.subtitle && (
+                  <div className="muted" style={{ fontSize: "0.82rem" }}>
+                    {dest.subtitle}
+                  </div>
+                )}
+                <div className="row" style={{ marginTop: 4, gap: 4 }}>
+                  <Check size={14} color="var(--ok)" />
+                  <span className="muted" style={{ fontSize: "0.78rem" }}>
+                    Destino listo
+                  </span>
+                </div>
+              </div>
+            </div>
           )}
 
-          <label>
-            Entrada a la sala
-            <select
-              value={joinMode}
-              onChange={(e) =>
-                setJoinMode(e.target.value as "OPEN" | "APPROVAL")
-              }
-            >
-              <option value="OPEN">Abierta con código</option>
-              <option value="APPROVAL">Con mi aprobación</option>
-            </select>
-          </label>
-
-          <label>
-            PIN opcional (4 dígitos)
-            <input
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="····"
-            />
-          </label>
+          <details className="advanced">
+            <summary>
+              <ChevronDown size={16} /> Más opciones
+            </summary>
+            <div className="stack" style={{ marginTop: "0.75rem" }}>
+              <label className="field">
+                <span>Quién puede entrar</span>
+                <div className="input-wrap">
+                  <select
+                    value={joinMode}
+                    onChange={(e) =>
+                      setJoinMode(e.target.value as "OPEN" | "APPROVAL")
+                    }
+                  >
+                    <option value="OPEN">Cualquiera con el código</option>
+                    <option value="APPROVAL">Solo con tu aprobación</option>
+                  </select>
+                </div>
+              </label>
+              <label className="field">
+                <span>PIN opcional (4 dígitos)</span>
+                <div className="input-wrap">
+                  <input
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Vacío = sin PIN"
+                  />
+                </div>
+              </label>
+            </div>
+          </details>
         </div>
 
-        {error && <div className="error">{error}</div>}
+        {error && (
+          <div className="error-box">
+            <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>{error}</span>
+          </div>
+        )}
 
-        <button type="submit" disabled={loading}>
-          {loading ? "Creando…" : "Crear sala"}
+        <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+          {loading ? (
+            <>
+              <Loader2 className="spin" size={18} /> Creando…
+            </>
+          ) : (
+            "Crear sala"
+          )}
         </button>
       </form>
     </main>

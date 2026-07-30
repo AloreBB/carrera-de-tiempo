@@ -1,7 +1,26 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  Check,
+  Copy,
+  Flag,
+  Home,
+  KeyRound,
+  Loader2,
+  MapPin,
+  Play,
+  Radio,
+  Share2,
+  Timer,
+  Trophy,
+  User,
+  Users,
+  X,
+} from "lucide-react";
 import { RaceMap } from "@/components/RaceMap";
 import {
   api,
@@ -41,6 +60,7 @@ export default function RaceRoomPage() {
   const [hasPin, setHasPin] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const [race, setRace] = useState<RacePublic | null>(null);
   const [participants, setParticipants] = useState<ParticipantPublic[]>([]);
@@ -82,7 +102,6 @@ export default function RaceRoomPage() {
         return;
       }
 
-      // re-join silently if this device already has a seat
       const mine = data.participants.find((p) => p.clientId === clientId);
       if (mine && data.race.status !== "FINISHED") {
         try {
@@ -123,7 +142,7 @@ export default function RaceRoomPage() {
     e?.preventDefault();
     setError("");
     if (!nickname.trim()) {
-      setError("Pon un apodo");
+      setError("Escribe un apodo");
       return;
     }
     setLoading(true);
@@ -152,13 +171,12 @@ export default function RaceRoomPage() {
       setParticipantId(res.participant.id);
       setPhase("room");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo unir");
+      setError(err instanceof Error ? err.message : "No se pudo entrar");
     } finally {
       setLoading(false);
     }
   }
 
-  // Socket + GPS
   useEffect(() => {
     if (phase !== "room" || !wsToken || !race) return;
 
@@ -246,9 +264,13 @@ export default function RaceRoomPage() {
     if (!race || !wsToken) return;
     setError("");
     const socket = getSocket(wsToken);
-    socket.emit(WS_EVENTS.HOST_START, {}, (ack: { ok: boolean; error?: string }) => {
-      if (ack && !ack.ok) setError(ack.error ?? "No se pudo empezar");
-    });
+    socket.emit(
+      WS_EVENTS.HOST_START,
+      {},
+      (ack: { ok: boolean; error?: string }) => {
+        if (ack && !ack.ok) setError(ack.error ?? "No se pudo empezar");
+      },
+    );
     try {
       const updated = (await api.startRace(race.id, clientId)) as RacePublic;
       if (updated?.status) {
@@ -256,7 +278,6 @@ export default function RaceRoomPage() {
         setCountdownEnds(Date.now() + 3000);
       }
     } catch (e) {
-      // socket path may already have started; soft-fail only if still lobby
       if (race.status === "LOBBY") {
         setError(e instanceof Error ? e.message : "No se pudo empezar");
       }
@@ -268,7 +289,7 @@ export default function RaceRoomPage() {
     try {
       await api.finishRace(race.id, clientId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(e instanceof Error ? e.message : "Error al cerrar");
     }
   }
 
@@ -279,12 +300,25 @@ export default function RaceRoomPage() {
     try {
       await api.approve(race.id, { clientId, participantId: pid, accept });
     } catch {
-      /* ignore if socket handled */
+      /* socket may handle */
+    }
+  }
+
+  async function copyInvite() {
+    if (!race) return;
+    const url = `${window.location.origin}/r/${race.code}`;
+    const text = `Únete a mi carrera: ${race.code}\n${url}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
     }
   }
 
   const mapPlayers = useMemo(() => {
-    const list = participants
+    return participants
       .filter((p) => p.status === "ACTIVE" || p.status === "FINISHED")
       .map((p) => {
         const pos =
@@ -298,7 +332,7 @@ export default function RaceRoomPage() {
           id: p.id,
           lat: pos.lat,
           lng: pos.lng,
-          color: p.color ?? "#38bdf8",
+          color: p.color ?? "#5ec8ff",
           label: p.nickname,
           isSelf: p.id === participantId,
         };
@@ -311,7 +345,6 @@ export default function RaceRoomPage() {
       label: string;
       isSelf: boolean;
     }>;
-    return list;
   }, [participants, positions, selfPos, participantId]);
 
   const elapsed =
@@ -326,51 +359,83 @@ export default function RaceRoomPage() {
 
   if (phase === "boot") {
     return (
-      <main>
-        <p className="muted">Cargando sala…</p>
+      <main className="app-shell">
+        <p className="muted row">
+          <Loader2 className="spin" size={16} /> Cargando sala…
+        </p>
       </main>
     );
   }
 
   if (phase === "join" && race?.status !== "FINISHED") {
     return (
-      <main>
-        <p>
-          <a href="/">← Inicio</a>
+      <main className="app-shell">
+        <Link href="/" className="back-link">
+          <Home size={16} /> Inicio
+        </Link>
+        <p className="eyebrow">
+          <Users size={12} /> Sala
         </p>
-        <h1>Sala {code}</h1>
+        <h1 className="display" style={{ letterSpacing: "0.14em" }}>
+          {code}
+        </h1>
         {race && (
-          <p className="muted">
-            Meta: {race.destLabel ?? `${race.destLat.toFixed(4)}, ${race.destLng.toFixed(4)}`}
+          <p className="lead row" style={{ gap: 6 }}>
+            <MapPin size={16} />
+            {race.destLabel ?? "Destino en el mapa"}
           </p>
         )}
         <form className="stack" onSubmit={doJoin}>
           <div className="card stack">
-            <label>
-              Tu apodo
-              <input
-                value={nickname}
-                onChange={(e) => setNick(e.target.value)}
-                maxLength={32}
-                required
-              />
-            </label>
-            {hasPin && (
-              <label>
-                PIN
+            <label className="field">
+              <span>Tu apodo</span>
+              <div className="input-wrap">
+                <User className="icon" size={18} />
                 <input
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  inputMode="numeric"
-                  maxLength={4}
+                  value={nickname}
+                  onChange={(e) => setNick(e.target.value)}
+                  maxLength={32}
+                  placeholder="Cómo te ven"
                   required
                 />
+              </div>
+            </label>
+            {hasPin && (
+              <label className="field">
+                <span>PIN de la sala</span>
+                <div className="input-wrap">
+                  <KeyRound className="icon" size={18} />
+                  <input
+                    value={pin}
+                    onChange={(e) =>
+                      setPin(e.target.value.replace(/\D/g, ""))
+                    }
+                    inputMode="numeric"
+                    maxLength={4}
+                    required
+                  />
+                </div>
               </label>
             )}
           </div>
-          {error && <div className="error">{error}</div>}
-          <button type="submit" disabled={loading}>
-            {loading ? "Entrando…" : "Entrar a la sala"}
+          {error && (
+            <div className="error-box">
+              <AlertCircle size={18} />
+              <span>{error}</span>
+            </div>
+          )}
+          <button
+            type="submit"
+            className="btn btn-primary btn-block"
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="spin" size={18} /> Entrando…
+              </>
+            ) : (
+              "Entrar a la sala"
+            )}
           </button>
         </form>
       </main>
@@ -379,9 +444,14 @@ export default function RaceRoomPage() {
 
   if (!race) {
     return (
-      <main>
-        <div className="error">{error || "Carrera no encontrada"}</div>
-        <a href="/">Volver</a>
+      <main className="app-shell">
+        <div className="error-box">
+          <AlertCircle size={18} />
+          <span>{error || "Carrera no encontrada"}</span>
+        </div>
+        <Link href="/" className="btn btn-secondary btn-block" style={{ marginTop: 12 }}>
+          Volver
+        </Link>
       </main>
     );
   }
@@ -389,41 +459,78 @@ export default function RaceRoomPage() {
   if (race.status === "FINISHED" || result) {
     const ranking = result?.ranking ?? [];
     return (
-      <main>
-        <p>
-          <a href="/">← Inicio</a>
-        </p>
-        <h1>Resultados</h1>
-        <p className="muted">Código {race.code}</p>
-        <div className="card">
-          <ol style={{ margin: 0, paddingLeft: "1.2rem" }}>
-            {ranking.length === 0 && <p className="muted">Sin llegadas registradas.</p>}
-            {ranking.map((r) => (
-              <li key={r.participantId} style={{ marginBottom: "0.5rem" }}>
-                <strong>
-                  #{r.place} {r.nickname}
-                </strong>{" "}
-                · {formatMs(r.durationMs)}
-              </li>
-            ))}
-          </ol>
+      <main className="app-shell">
+        <Link href="/" className="back-link">
+          <Home size={16} /> Inicio
+        </Link>
+        <div className="hero-mark" aria-hidden>
+          <Trophy size={24} />
         </div>
+        <h1 className="display">Resultados</h1>
+        <p className="lead">
+          Sala{" "}
+          <strong style={{ letterSpacing: "0.12em" }} className="display">
+            {race.code}
+          </strong>
+        </p>
+
+        <div className="card">
+          {ranking.length === 0 ? (
+            <p className="muted" style={{ margin: 0 }}>
+              Nadie llegó a meta en esta carrera.
+            </p>
+          ) : (
+            <ul className="list-clean">
+              {ranking.map((r) => (
+                <li key={r.participantId}>
+                  <span className="row">
+                    <span
+                      className="pill"
+                      style={{
+                        color: r.place === 1 ? "var(--amber)" : "var(--muted)",
+                        minWidth: 42,
+                        justifyContent: "center",
+                      }}
+                    >
+                      #{r.place}
+                    </span>
+                    <strong>{r.nickname}</strong>
+                  </span>
+                  <span
+                    className="display"
+                    style={{ fontSize: "1.05rem", letterSpacing: "0.04em" }}
+                  >
+                    {formatMs(r.durationMs)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         {participantId && result?.segments[participantId] && (
-          <div className="card">
-            <h2 style={{ fontSize: "1rem" }}>Tus tramos</h2>
-            <ul className="list">
+          <div className="card" style={{ marginTop: "0.85rem" }}>
+            <h2 className="row" style={{ gap: 8 }}>
+              <Timer size={16} color="var(--muted)" /> Tus tramos
+            </h2>
+            <ul className="list-clean">
               {result.segments[participantId].map((s) => (
                 <li key={s.index}>
-                  <span>
+                  <span className="muted">
                     {s.fromPct.toFixed(0)}–{s.toPct.toFixed(0)}%
                   </span>
-                  <span>{formatMs(s.durationMs)}</span>
+                  <strong className="display">{formatMs(s.durationMs)}</strong>
                 </li>
               ))}
             </ul>
           </div>
         )}
-        <button className="secondary" onClick={() => router.push("/")}>
+
+        <button
+          className="btn btn-secondary btn-block"
+          style={{ marginTop: "1rem" }}
+          onClick={() => router.push("/")}
+        >
           Volver al inicio
         </button>
       </main>
@@ -435,84 +542,138 @@ export default function RaceRoomPage() {
     (p) => p.status === "ACTIVE" || p.status === "FINISHED",
   );
 
+  const title =
+    race.status === "LOBBY"
+      ? "Sala de espera"
+      : race.status === "COUNTDOWN"
+        ? "Preparados"
+        : "En carrera";
+
   return (
-    <main>
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <a href="/">←</a>
-        <span className="pill">
-          {conn === "live" ? "En vivo" : conn === "reconnecting" ? "Reconectando…" : "Conectando…"}
+    <main className="app-shell">
+      <div className="row between">
+        <Link href="/" className="back-link" style={{ marginBottom: 0 }}>
+          <Home size={16} />
+        </Link>
+        <span
+          className={`pill ${conn === "live" ? "live" : "warn"}`}
+        >
+          <Radio size={12} />
+          {conn === "live"
+            ? "En vivo"
+            : conn === "reconnecting"
+              ? "Reconectando…"
+              : "Conectando…"}
         </span>
       </div>
 
-      <h1 style={{ fontSize: "1.25rem", marginTop: "0.5rem" }}>
-        {race.status === "LOBBY"
-          ? "Lobby"
-          : race.status === "COUNTDOWN"
-            ? "¡Preparados!"
-            : "¡Carrera!"}
+      <h1 className="display" style={{ fontSize: "1.35rem", marginTop: "0.75rem" }}>
+        {title}
       </h1>
 
       {race.status === "LOBBY" && (
-        <div className="card">
-          <div className="code-big" data-testid="race-code">
+        <div className="card" style={{ marginTop: "0.65rem" }}>
+          <p className="eyebrow" style={{ justifyContent: "center", width: "100%" }}>
+            Código de invitación
+          </p>
+          <div className="code-hero" data-testid="race-code">
             {race.code}
           </div>
-          <div className="row" style={{ justifyContent: "center", marginTop: "0.5rem" }}>
+          <div className="stack" style={{ marginTop: "0.85rem" }}>
             <button
               type="button"
-              className="secondary"
+              className="btn btn-secondary btn-block"
+              onClick={copyInvite}
+            >
+              {copied ? <Check size={18} /> : <Share2 size={18} />}
+              {copied ? "Copiado" : "Copiar código y enlace"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-block"
               onClick={() => {
-                const url = `${window.location.origin}/r/${race.code}`;
-                void navigator.clipboard?.writeText(url);
+                void navigator.clipboard?.writeText(race.code);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
               }}
             >
-              Copiar enlace
+              <Copy size={16} /> Solo el código
             </button>
           </div>
-          <p className="muted" style={{ textAlign: "center" }}>
-            Meta: {race.destLabel ?? "punto en el mapa"}
+          <p
+            className="muted row"
+            style={{
+              margin: "0.85rem 0 0",
+              justifyContent: "center",
+              textAlign: "center",
+              fontSize: "0.86rem",
+            }}
+          >
+            <MapPin size={14} />
+            {race.destLabel ?? "Destino en el mapa"}
           </p>
         </div>
       )}
 
-      {(race.status === "RACING" ||
-        race.status === "COUNTDOWN" ||
-        race.status === "LOBBY") && (
+      <div style={{ marginTop: "0.85rem" }}>
         <RaceMap
           dest={{ lat: race.destLat, lng: race.destLng }}
           players={mapPlayers}
         />
-      )}
+      </div>
 
       {countdownLeft != null && countdownLeft > 0 && (
-        <div className="card" style={{ textAlign: "center", fontSize: "2rem" }}>
-          {countdownLeft}
+        <div className="card" style={{ marginTop: "0.85rem" }}>
+          <div className="countdown-big">{countdownLeft}</div>
+          <p className="muted" style={{ textAlign: "center", margin: 0 }}>
+            La carrera empieza…
+          </p>
         </div>
       )}
 
       {race.status === "RACING" && (
-        <div className="card row" style={{ justifyContent: "space-between" }}>
-          <span>Tiempo</span>
-          <strong data-testid="elapsed">{formatMs(elapsed)}</strong>
+        <div className="card row between" style={{ marginTop: "0.85rem" }}>
+          <span className="row muted">
+            <Timer size={16} /> Tiempo
+          </span>
+          <strong
+            className="display"
+            data-testid="elapsed"
+            style={{ fontSize: "1.35rem", letterSpacing: "0.06em" }}
+          >
+            {formatMs(elapsed)}
+          </strong>
         </div>
       )}
 
-      <div className="card">
-        <h2 style={{ fontSize: "1rem" }}>Pilotos</h2>
-        <ul className="list">
+      <div className="card" style={{ marginTop: "0.85rem" }}>
+        <h2 className="row" style={{ gap: 8 }}>
+          <Users size={16} color="var(--muted)" /> Pilotos
+        </h2>
+        <ul className="list-clean">
           {active.map((p) => (
             <li key={p.id}>
-              <span>
+              <span className="row">
                 <span
                   className="dot"
-                  style={{ background: p.color ?? "#888", marginRight: 8 }}
+                  style={{ background: p.color ?? "#888" }}
                 />
-                {p.nickname}
-                {p.isHost ? " · host" : ""}
-                {p.status === "FINISHED" ? " · 🏁" : ""}
+                <span>
+                  {p.nickname}
+                  {p.isHost ? (
+                    <span className="muted"> · org</span>
+                  ) : null}
+                  {p.status === "FINISHED" ? (
+                    <Flag
+                      size={14}
+                      color="var(--amber)"
+                      style={{ marginLeft: 6, verticalAlign: -2 }}
+                    />
+                  ) : null}
+                </span>
               </span>
               <span className="muted">
-                {p.durationMs != null ? formatMs(p.durationMs) : p.status}
+                {p.durationMs != null ? formatMs(p.durationMs) : "—"}
               </span>
             </li>
           ))}
@@ -520,36 +681,59 @@ export default function RaceRoomPage() {
       </div>
 
       {isHost && race.joinMode === "APPROVAL" && pending.length > 0 && (
-        <div className="card">
-          <h2 style={{ fontSize: "1rem" }}>Pendientes</h2>
+        <div className="card" style={{ marginTop: "0.85rem" }}>
+          <h2>Pendientes</h2>
           {pending.map((p) => (
-            <div key={p.id} className="row" style={{ marginBottom: 8 }}>
+            <div key={p.id} className="row between" style={{ marginBottom: 8 }}>
               <span>{p.nickname}</span>
-              <button type="button" onClick={() => approve(p.id, true)}>
-                OK
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => approve(p.id, false)}
-              >
-                No
-              </button>
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ padding: "0.45rem 0.7rem" }}
+                  onClick={() => approve(p.id, true)}
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  style={{ padding: "0.45rem 0.7rem" }}
+                  onClick={() => approve(p.id, false)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <div className="error-box" style={{ marginTop: "0.85rem" }}>
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
 
       {isHost && race.status === "LOBBY" && (
-        <button data-testid="start-race" onClick={startRace}>
+        <button
+          data-testid="start-race"
+          className="btn btn-primary btn-block"
+          style={{ marginTop: "1rem" }}
+          onClick={startRace}
+        >
+          <Play size={18} fill="currentColor" />
           Empezar carrera
         </button>
       )}
 
       {isHost && race.status === "RACING" && (
-        <button className="secondary" onClick={forceFinish}>
+        <button
+          className="btn btn-secondary btn-block"
+          style={{ marginTop: "1rem" }}
+          onClick={forceFinish}
+        >
           Cerrar carrera
         </button>
       )}

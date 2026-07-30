@@ -81,9 +81,15 @@ export const api = {
     }),
 
   geoSearch: (q: string) =>
-    req<Array<{ lat: number; lng: number; label: string }>>(
-      `/api/geo/search?q=${encodeURIComponent(q)}`,
-    ),
+    req<
+      Array<{
+        lat: number;
+        lng: number;
+        label: string;
+        subtitle?: string;
+        kind?: "place" | "address" | "street" | "city" | "other";
+      }>
+    >(`/api/geo/search?q=${encodeURIComponent(q)}`),
 
   results: (code: string) =>
     req<{ race: RacePublic; result: RaceResultPayload | null; participants: ParticipantPublic[] }>(
