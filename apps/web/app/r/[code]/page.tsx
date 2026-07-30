@@ -566,7 +566,7 @@ export default function RaceRoomPage() {
             }}
           >
             <MessageCircle size={18} />
-            Compartir resultados por WhatsApp
+            WhatsApp: compartir resultados
           </button>
           <button
             className="btn btn-secondary btn-block"
@@ -633,7 +633,7 @@ export default function RaceRoomPage() {
               }}
             >
               <MessageCircle size={18} />
-              Compartir por WhatsApp
+              WhatsApp: enlace para entrar
             </button>
             <button
               type="button"
@@ -641,7 +641,7 @@ export default function RaceRoomPage() {
               onClick={copyInvite}
             >
               {copied ? <Check size={18} /> : <Share2 size={18} />}
-              {copied ? "Copiado" : "Copiar código y enlace"}
+              {copied ? "Copiado" : "Copiar enlace de entrada"}
             </button>
             <button
               type="button"
