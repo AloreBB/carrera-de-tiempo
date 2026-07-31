@@ -305,7 +305,7 @@ export class RacesService {
       const existing = await this.prisma.raceResult.findUnique({
         where: { raceId },
       });
-      return existing?.payload ?? null;
+      return (existing?.payload as RaceResultPayload | null) ?? null;
     }
     if (race.status !== RaceStatus.RACING && race.status !== RaceStatus.COUNTDOWN) {
       return null;
