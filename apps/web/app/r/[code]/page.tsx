@@ -38,6 +38,11 @@ import {
   saveSession,
   setNickname,
 } from "@/lib/storage";
+import {
+  acquireWakeLock,
+  bindWakeLockVisibility,
+  releaseWakeLock,
+} from "@/lib/wake-lock";
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -76,9 +81,12 @@ export default function RaceRoomPage() {
   const [selfPos, setSelfPos] = useState<{ lat: number; lng: number } | null>(
     null,
   );
+  const [selfBearing, setSelfBearing] = useState<number | null>(null);
   const watchId = useRef<number | null>(null);
   const startedAtRef = useRef<number | null>(null);
+  const raceStatusRef = useRef<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [connDetail, setConnDetail] = useState("");
 
   const isHost = race?.hostClientId === clientId;
 
@@ -178,14 +186,31 @@ export default function RaceRoomPage() {
     }
   }
 
+  // Keep latest status for geolocation emit without reconnecting socket
   useEffect(() => {
-    if (phase !== "room" || !wsToken || !race) return;
+    raceStatusRef.current = race?.status ?? null;
+  }, [race?.status]);
+
+  // Socket: only (re)bind when room/token change — NOT on every race.status
+  useEffect(() => {
+    if (phase !== "room" || !wsToken) return;
 
     const socket = getSocket(wsToken);
     setConn(socket.connected ? "live" : "connecting");
+    setConnDetail("");
 
-    const onConnect = () => setConn("live");
-    const onDisconnect = () => setConn("reconnecting");
+    const onConnect = () => {
+      setConn("live");
+      setConnDetail("");
+    };
+    const onDisconnect = (reason: string) => {
+      setConn("reconnecting");
+      setConnDetail(reason);
+    };
+    const onConnectError = (err: Error) => {
+      setConn("reconnecting");
+      setConnDetail(err.message || "error de red");
+    };
     const onState = (state: {
       race: RacePublic;
       participants: ParticipantPublic[];
@@ -214,34 +239,15 @@ export default function RaceRoomPage() {
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
+    socket.on("connect_error", onConnectError);
     socket.on(WS_EVENTS.RACE_STATE, onState);
     socket.on(WS_EVENTS.RACE_COUNTDOWN, onCountdown);
     socket.on(WS_EVENTS.RACE_STARTED, onStarted);
     socket.on(WS_EVENTS.RACE_POSITIONS, onPositions);
     socket.on(WS_EVENTS.RACE_COMPLETED, onCompleted);
 
-    if (navigator.geolocation) {
-      watchId.current = navigator.geolocation.watchPosition(
-        (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          setSelfPos({ lat, lng });
-          if (
-            race.status === "RACING" ||
-            race.status === "COUNTDOWN" ||
-            race.status === "LOBBY"
-          ) {
-            socket.emit(WS_EVENTS.RACE_POSITION, {
-              lat,
-              lng,
-              accuracy: pos.coords.accuracy,
-              t: Date.now(),
-            });
-          }
-        },
-        () => setError("Activa la ubicación para competir"),
-        { enableHighAccuracy: true, maximumAge: 1000 },
-      );
+    if (!socket.connected) {
+      socket.connect();
     }
 
     const clock = setInterval(() => setTick((t) => t + 1), 1000);
@@ -249,17 +255,77 @@ export default function RaceRoomPage() {
     return () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
+      socket.off("connect_error", onConnectError);
       socket.off(WS_EVENTS.RACE_STATE, onState);
       socket.off(WS_EVENTS.RACE_COUNTDOWN, onCountdown);
       socket.off(WS_EVENTS.RACE_STARTED, onStarted);
       socket.off(WS_EVENTS.RACE_POSITIONS, onPositions);
       socket.off(WS_EVENTS.RACE_COMPLETED, onCompleted);
+      clearInterval(clock);
+      // Do NOT disconnect singleton here — other effects may still use it.
+    };
+  }, [phase, wsToken]);
+
+  // GPS watch (independent of socket re-bind)
+  useEffect(() => {
+    if (phase !== "room" || !wsToken) return;
+    if (!navigator.geolocation) {
+      setError("Este dispositivo no tiene GPS");
+      return;
+    }
+
+    watchId.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setSelfPos({ lat, lng });
+        if (
+          typeof pos.coords.heading === "number" &&
+          !Number.isNaN(pos.coords.heading) &&
+          pos.coords.heading >= 0
+        ) {
+          setSelfBearing(pos.coords.heading);
+        }
+        const st = raceStatusRef.current;
+        if (st === "RACING" || st === "COUNTDOWN" || st === "LOBBY") {
+          const socket = getSocket(wsToken);
+          if (socket.connected) {
+            socket.emit(WS_EVENTS.RACE_POSITION, {
+              lat,
+              lng,
+              accuracy: pos.coords.accuracy,
+              t: Date.now(),
+            });
+          }
+        }
+      },
+      () => setError("Activa la ubicación para competir"),
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15_000 },
+    );
+
+    return () => {
       if (watchId.current != null) {
         navigator.geolocation.clearWatch(watchId.current);
+        watchId.current = null;
       }
-      clearInterval(clock);
     };
-  }, [phase, wsToken, race?.id, race?.status]);
+  }, [phase, wsToken]);
+
+  // Keep screen on during countdown + race
+  useEffect(() => {
+    const live =
+      race?.status === "COUNTDOWN" || race?.status === "RACING";
+    if (!live) {
+      void releaseWakeLock();
+      return;
+    }
+    void acquireWakeLock();
+    const unbind = bindWakeLockVisibility();
+    return () => {
+      unbind();
+      void releaseWakeLock();
+    };
+  }, [race?.status]);
 
   async function startRace() {
     if (!race || !wsToken) return;
@@ -363,6 +429,7 @@ export default function RaceRoomPage() {
           color: p.color ?? "#5ec8ff",
           label: p.nickname,
           isSelf: p.id === participantId,
+          bearing: p.id === participantId ? selfBearing : null,
         };
       })
       .filter(Boolean) as Array<{
@@ -372,8 +439,9 @@ export default function RaceRoomPage() {
       color: string;
       label: string;
       isSelf: boolean;
+      bearing: number | null;
     }>;
-  }, [participants, positions, selfPos, participantId]);
+  }, [participants, positions, selfPos, participantId, selfBearing]);
 
   const elapsed =
     startedAtRef.current && race?.status === "RACING"
@@ -584,128 +652,224 @@ export default function RaceRoomPage() {
     (p) => p.status === "ACTIVE" || p.status === "FINISHED",
   );
 
-  const title =
-    race.status === "LOBBY"
-      ? "Sala de espera"
-      : race.status === "COUNTDOWN"
-        ? "Preparados"
-        : "En carrera";
+  const connLabel =
+    conn === "live"
+      ? "En vivo"
+      : conn === "reconnecting"
+        ? "Reconectando…"
+        : "Conectando…";
 
+  const liveNav =
+    race.status === "COUNTDOWN" || race.status === "RACING";
+
+  // —— Full-screen Waze-like map once the race starts ——
+  if (liveNav) {
+    return (
+      <main className="race-live">
+        <RaceMap
+          className="race-live-map"
+          dest={{ lat: race.destLat, lng: race.destLng }}
+          players={mapPlayers}
+          followSelf
+          navigationMode
+        />
+
+        <div className="race-live-top">
+          <Link
+            href="/"
+            className="pill"
+            style={{ background: "rgba(14,19,27,0.9)", color: "var(--text)" }}
+          >
+            <Home size={14} />
+          </Link>
+          <span className={`pill ${conn === "live" ? "live" : "warn"}`}>
+            <Radio size={12} />
+            {connLabel}
+            {connDetail && conn !== "live" ? (
+              <span style={{ opacity: 0.75, fontWeight: 500 }}>
+                · {connDetail.slice(0, 28)}
+              </span>
+            ) : null}
+          </span>
+        </div>
+
+        {countdownLeft != null && countdownLeft > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 6,
+              display: "grid",
+              placeItems: "center",
+              background: "rgba(5,8,12,0.45)",
+              pointerEvents: "none",
+            }}
+          >
+            <div className="race-hud-card" style={{ textAlign: "center" }}>
+              <div className="countdown-big">{countdownLeft}</div>
+              <p className="muted" style={{ margin: 0 }}>
+                ¡Prepárate!
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="race-live-bottom">
+          {race.status === "RACING" && (
+            <div className="race-hud-card row between">
+              <span className="row muted">
+                <Timer size={16} /> Tiempo
+              </span>
+              <strong className="race-hud-timer" data-testid="elapsed">
+                {formatMs(elapsed)}
+              </strong>
+            </div>
+          )}
+
+          <div className="race-hud-card">
+            <div className="row between" style={{ marginBottom: 6 }}>
+              <span className="row muted" style={{ fontSize: "0.85rem" }}>
+                <MapPin size={14} />
+                {race.destLabel ?? "Meta"}
+              </span>
+              <span className="muted" style={{ fontSize: "0.78rem" }}>
+                ~{race.finishRadiusM} m
+              </span>
+            </div>
+            <ul className="list-clean">
+              {active.slice(0, 6).map((p) => (
+                <li key={p.id} style={{ padding: "0.45rem 0" }}>
+                  <span className="row">
+                    <span
+                      className="dot"
+                      style={{ background: p.color ?? "#888" }}
+                    />
+                    <span style={{ fontSize: "0.9rem" }}>
+                      {p.nickname}
+                      {p.id === participantId ? " · tú" : ""}
+                      {p.status === "FINISHED" ? (
+                        <Flag
+                          size={12}
+                          color="var(--amber)"
+                          style={{ marginLeft: 4, verticalAlign: -1 }}
+                        />
+                      ) : null}
+                    </span>
+                  </span>
+                  <span className="muted" style={{ fontSize: "0.85rem" }}>
+                    {p.durationMs != null ? formatMs(p.durationMs) : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {error && (
+            <div className="error-box">
+              <AlertCircle size={18} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {isHost && race.status === "RACING" && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-block"
+              onClick={forceFinish}
+            >
+              Cerrar carrera
+            </button>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  // —— Lobby ——
   return (
     <main className="app-shell">
       <div className="row between">
         <Link href="/" className="back-link" style={{ marginBottom: 0 }}>
           <Home size={16} />
         </Link>
-        <span
-          className={`pill ${conn === "live" ? "live" : "warn"}`}
-        >
+        <span className={`pill ${conn === "live" ? "live" : "warn"}`}>
           <Radio size={12} />
-          {conn === "live"
-            ? "En vivo"
-            : conn === "reconnecting"
-              ? "Reconectando…"
-              : "Conectando…"}
+          {connLabel}
         </span>
       </div>
 
-      <h1 className="display" style={{ fontSize: "1.35rem", marginTop: "0.75rem" }}>
-        {title}
+      <h1
+        className="display"
+        style={{ fontSize: "1.35rem", marginTop: "0.75rem" }}
+      >
+        Sala de espera
       </h1>
 
-      {race.status === "LOBBY" && (
-        <div className="card" style={{ marginTop: "0.65rem" }}>
-          <p className="eyebrow" style={{ justifyContent: "center", width: "100%" }}>
-            Código de invitación
-          </p>
-          <div className="code-hero" data-testid="race-code">
-            {race.code}
-          </div>
-          <div className="stack" style={{ marginTop: "0.85rem" }}>
-            <button
-              type="button"
-              className="btn btn-primary btn-block"
-              onClick={shareWhatsApp}
-              style={{
-                background: "linear-gradient(135deg, #25d366 0%, #128c7e 100%)",
-                color: "#fff",
-                boxShadow: "0 10px 28px rgba(37, 211, 102, 0.25)",
-              }}
-            >
-              <MessageCircle size={18} />
-              WhatsApp: enlace para entrar
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-block"
-              onClick={copyInvite}
-            >
-              {copied ? <Check size={18} /> : <Share2 size={18} />}
-              {copied ? "Copiado" : "Copiar enlace de entrada"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-block"
-              onClick={() => {
-                void navigator.clipboard?.writeText(race.code);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              }}
-            >
-              <Copy size={16} /> Solo el código
-            </button>
-          </div>
-          <p
-            className="muted row"
+      <div className="card" style={{ marginTop: "0.65rem" }}>
+        <p
+          className="eyebrow"
+          style={{ justifyContent: "center", width: "100%" }}
+        >
+          Código de invitación
+        </p>
+        <div className="code-hero" data-testid="race-code">
+          {race.code}
+        </div>
+        <div className="stack" style={{ marginTop: "0.85rem" }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-block"
+            onClick={shareWhatsApp}
             style={{
-              margin: "0.85rem 0 0",
-              justifyContent: "center",
-              textAlign: "center",
-              fontSize: "0.86rem",
+              background: "linear-gradient(135deg, #25d366 0%, #128c7e 100%)",
+              color: "#fff",
+              boxShadow: "0 10px 28px rgba(37, 211, 102, 0.25)",
             }}
           >
-            <MapPin size={14} />
-            {race.destLabel ?? "Destino en el mapa"}
-          </p>
+            <MessageCircle size={18} />
+            WhatsApp: enlace para entrar
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-block"
+            onClick={copyInvite}
+          >
+            {copied ? <Check size={18} /> : <Share2 size={18} />}
+            {copied ? "Copiado" : "Copiar enlace de entrada"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-block"
+            onClick={() => {
+              void navigator.clipboard?.writeText(race.code);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+          >
+            <Copy size={16} /> Solo el código
+          </button>
         </div>
-      )}
+        <p
+          className="muted row"
+          style={{
+            margin: "0.85rem 0 0",
+            justifyContent: "center",
+            textAlign: "center",
+            fontSize: "0.86rem",
+          }}
+        >
+          <MapPin size={14} />
+          {race.destLabel ?? "Destino en el mapa"}
+        </p>
+      </div>
 
       <div style={{ marginTop: "0.85rem" }}>
         <RaceMap
           dest={{ lat: race.destLat, lng: race.destLng }}
           players={mapPlayers}
+          followSelf={false}
         />
       </div>
-
-      {countdownLeft != null && countdownLeft > 0 && (
-        <div className="card" style={{ marginTop: "0.85rem" }}>
-          <div className="countdown-big">{countdownLeft}</div>
-          <p className="muted" style={{ textAlign: "center", margin: 0 }}>
-            La carrera empieza…
-          </p>
-        </div>
-      )}
-
-      {race.status === "RACING" && (
-        <div className="card" style={{ marginTop: "0.85rem" }}>
-          <div className="row between">
-            <span className="row muted">
-              <Timer size={16} /> Tiempo de carrera
-            </span>
-            <strong
-              className="display"
-              data-testid="elapsed"
-              style={{ fontSize: "1.35rem", letterSpacing: "0.06em" }}
-            >
-              {formatMs(elapsed)}
-            </strong>
-          </div>
-          <p className="muted" style={{ margin: "0.55rem 0 0", fontSize: "0.8rem" }}>
-            Corre desde el final del 3-2-1 hasta que entres en el radio de la
-            meta (~{race.finishRadiusM} m). Tu tiempo se guarda al llegar.
-          </p>
-        </div>
-      )}
 
       <div className="card" style={{ marginTop: "0.85rem" }}>
         <h2 className="row" style={{ gap: 8 }}>
@@ -721,21 +885,10 @@ export default function RaceRoomPage() {
                 />
                 <span>
                   {p.nickname}
-                  {p.isHost ? (
-                    <span className="muted"> · org</span>
-                  ) : null}
-                  {p.status === "FINISHED" ? (
-                    <Flag
-                      size={14}
-                      color="var(--amber)"
-                      style={{ marginLeft: 6, verticalAlign: -2 }}
-                    />
-                  ) : null}
+                  {p.isHost ? <span className="muted"> · org</span> : null}
                 </span>
               </span>
-              <span className="muted">
-                {p.durationMs != null ? formatMs(p.durationMs) : "—"}
-              </span>
+              <span className="muted">—</span>
             </li>
           ))}
         </ul>
@@ -777,7 +930,7 @@ export default function RaceRoomPage() {
         </div>
       )}
 
-      {isHost && race.status === "LOBBY" && (
+      {isHost && (
         <button
           data-testid="start-race"
           className="btn btn-primary btn-block"
@@ -786,16 +939,6 @@ export default function RaceRoomPage() {
         >
           <Play size={18} fill="currentColor" />
           Empezar carrera
-        </button>
-      )}
-
-      {isHost && race.status === "RACING" && (
-        <button
-          className="btn btn-secondary btn-block"
-          style={{ marginTop: "1rem" }}
-          onClick={forceFinish}
-        >
-          Cerrar carrera
         </button>
       )}
     </main>

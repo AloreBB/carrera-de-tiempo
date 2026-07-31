@@ -51,6 +51,21 @@ async function bootstrap() {
     maxAge: 600,
   });
 
+  // Engine.IO expects `/socket.io/?…`. Some proxies (Next rewrites) strip the
+  // trailing slash → Nest 404 and the client stays on "Conectando…".
+  app.use(
+    (
+      req: { url?: string },
+      _res: unknown,
+      next: (err?: unknown) => void,
+    ) => {
+      if (req.url === "/socket.io" || req.url?.startsWith("/socket.io?")) {
+        req.url = req.url.replace("/socket.io", "/socket.io/");
+      }
+      next();
+    },
+  );
+
   const port = Number(process.env.PORT ?? 3001);
   // Bind all interfaces inside the container; only Docker/Traefik should reach it
   await app.listen(port, "0.0.0.0");
